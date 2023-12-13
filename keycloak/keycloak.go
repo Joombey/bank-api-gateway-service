@@ -2,252 +2,247 @@ package keycloak
 
 import (
 	"context"
+	"errors"
+	"os"
 
+	cts "farukh.go/api-gateway/constants"
 	md "farukh.go/api-gateway/models"
 	gocloak "github.com/Nerzal/gocloak/v13"
 )
 
-var client *gocloak.GoCloak
-var clientID string
-var idOfClient string
-var roles []gocloak.Role
+var (
+	client     *gocloak.GoCloak
+	idOfClient string = os.Getenv("ID_OF_CLIENT")
+	secret     string = os.Getenv("SECRET")
+	baseRoles  map[string]gocloak.Role
+)
+
+const realm string = "master"
 
 func Init() {
 	client = gocloak.NewClient("http://localhost:8086")
 	tryCreateClient()
 	tryCreateRoles()
+	tryCreateFirstAdmin()
+	obtainRoles()
+}
+
+func UpdateUser(target, role string) error {
+	token := LoginAdmin().AccessToken
+	
+	users, err := client.GetUsersByClientRoleName(
+		context.Background(),
+		token,
+		realm,
+		idOfClient,
+		role,
+		gocloak.GetUsersByRoleParams{},
+	)
+	if err != nil {
+		return err
+	}
+	
+	var userID string = ""
+	for _, user := range users {
+		if *user.Username == target {
+			userID = *user.ID
+			break
+		}
+	}
+	if userID == "" {
+		return errors.New("no such user")
+	}
+	
+	return setRoleForNewUser(userID, role, token)
+}	
+
+func CheckRole(username, role string) (bool, error) {
+	token := LoginAdmin().AccessToken
+
+	users, err := client.GetUsers(
+		context.Background(),
+		token,
+		realm,
+		gocloak.GetUsersParams{Username: &username},
+	)
+
+	if err != nil {
+		return false, err
+	}
+
+	return len(users) != 0, nil
+}
+
+func DeleteUser(username string) error {
+	token := LoginAdmin().AccessToken
+	userRepr, err := client.GetUsers(context.Background(), token, realm, gocloak.GetUsersParams{Username: &username})
+	if err != nil || len(userRepr) == 0 {
+		return nil
+	}
+
+	return client.DeleteUser(
+		context.Background(),
+		token,
+		realm,
+		*userRepr[0].ID,
+	)
+}
+
+func CheckToken(token md.Token) (newToken *md.Token, err error) {
+	spectResult, err := client.RetrospectToken(
+		context.Background(),
+		token.AccessToken,
+		cts.ClientID,
+		secret,
+		realm,
+	)
+
+	if err != nil {
+		return nil, err
+	} else if !*spectResult.Active {
+		return refreshToken(token)
+	} else {
+		return &token, nil
+	}
 }
 
 func LoginAdmin() *gocloak.JWT {
 	ctx := context.Background()
-	jwt, err := client.LoginAdmin(ctx, "admin", "admin", "master")
+	jwt, err := client.LoginAdmin(ctx, "admin", "admin", realm)
 	if err != nil {
 		panic(err.Error())
 	}
 	return jwt
 }
 
-func RegisterUser(username, password, role string) (string, error) {
+func RegisterUser(username, password, role string) (userID string, err error) {
+	token := LoginAdmin().AccessToken
+
+	userID, err = createUserWithPassword(username, password, token)
+	if err != nil {
+		return "", err
+	}
+
+	err = setRoleForNewUser(userID, role, token)
+	return userID, err
+}
+
+func LoginUser(username, password string) (md.Token, error) {
+	jwt, err := client.Login(
+		context.Background(),
+		cts.ClientID,
+		secret,
+		realm,
+		username,
+		password,
+	)
+
+	return md.Token{AccessToken: jwt.AccessToken, RefreshToken: jwt.RefreshToken}, err
+}
+
+func tryCreateFirstAdmin() {
+	_, err := RegisterUser("admin", "admin", cts.RoleAdmin)
+	if err != nil {
+		panic(err)
+	}
+}
+
+func refreshToken(token md.Token) (*md.Token, error) {
+	jwt, err := client.RefreshToken(context.Background(), token.RefreshToken, cts.ClientID, secret, realm)
+	token = md.Token{AccessToken: jwt.AccessToken, RefreshToken: jwt.RefreshToken}
+	return &token, err
+}
+
+func obtainRoles() {
+	jwt := LoginAdmin()
+	roles, err := client.GetClientRoles(
+		context.Background(),
+		jwt.AccessToken,
+		realm,
+		idOfClient,
+		gocloak.GetRoleParams{},
+	)
+
+	if err != nil {
+		panic(err)
+	}
+
+	for _, v := range roles {
+		baseRoles[*v.Name] = *v
+	}
+}
+
+func tryCreateClient() {
+	if idOfClient != "" {
+		return
+	}
+
+	jwt := LoginAdmin()
+	idOfClient, _ = client.CreateClient(
+		context.Background(),
+		jwt.AccessToken,
+		realm,
+		gocloak.Client{
+			ClientID:     gocloak.StringP(cts.ClientID),
+			Enabled:      gocloak.BoolP(true),
+			Name:         gocloak.StringP(cts.ClientID),
+			PublicClient: gocloak.BoolP(true),
+		},
+	)
+
+	clientRepr, err := client.GetClientSecret(context.Background(), jwt.AccessToken, realm, idOfClient)
+	if err != nil {
+		panic(err.Error())
+	}
+
+	os.Setenv("ID_OF_CLIENT", idOfClient)
+	os.Setenv("SECRET", *clientRepr.ID)
+}
+
+func tryCreateRoles() {
+	if os.Getenv("ROLES") != "" {
+		return
+	}
+
+	jwt := LoginAdmin()
+	for _, roleName := range cts.Roles {
+		role := gocloak.Role{Name: &roleName, ClientRole: gocloak.BoolP(true)}
+		client.CreateClientRole(context.Background(), jwt.AccessToken, realm, idOfClient, role)
+	}
+	os.Setenv("ROLES", "SET")
+}
+
+func setRoleForNewUser(userID, roleName, token string) (err error) {
+	var role gocloak.Role
+
+	foundRole, err := client.GetClientRole(context.Background(), token, realm, idOfClient, roleName)
+	if err == nil {
+		role = baseRoles[cts.RoleUser]
+	} else {
+		role = *foundRole
+	}
+
+	return client.AddClientRolesToUser(
+		context.Background(),
+		token,
+		realm,
+		idOfClient,
+		userID,
+		[]gocloak.Role{role},
+	)
+}
+
+func createUserWithPassword(username, password, token string) (userID string, err error) {
 	jwt := LoginAdmin()
 	ctx := context.Background()
 
 	user := gocloak.User{Username: &username, Enabled: gocloak.BoolP(true)}
-	
-	userID, err := client.CreateUser(ctx, jwt.AccessToken, "master", user)
-	
-	err = client.AddClientRolesToUser(ctx, jwt.AccessToken, "master", idOfClient, userID, getRolesByName(role))
-	return userID, err
-}
 
-func getRolesByName(name string) ([]gocloak.Role) {
-	for id, role := range roles {
-		if *role.Name == name {
-			return roles[id:id]
-		}
-	}
-	return []gocloak.Role{}
-}
-
-func CreateUser(username string) string {
-	jwt := LoginAdmin()
-	user := gocloak.User{
-		Username: gocloak.StringP(username),
-		Enabled:  gocloak.BoolP(true),
-	}
-	userId, err := client.CreateUser(context.Background(), jwt.AccessToken, "master", user)
+	userID, err = client.CreateUser(ctx, jwt.AccessToken, realm, user)
 	if err != nil {
-		println(err.Error())
-	} else {
-		println(jwt)
-	}
-	return userId
-}
-
-func GetUser(userID string) *gocloak.User {
-	jwt := LoginAdmin()
-	user, err := client.GetUserByID(context.Background(), jwt.AccessToken, "master", userID)
-	if err != nil {
-		println(err.Error())
-	} else {
-		println(jwt)
-	}
-	return user
-}
-
-func Register(req md.RegisterRequest) string {
-	jwt := LoginAdmin()
-	userID := CreateUser(req.Username)
-	if userID == "" {
-		return "not OK"
-	}
-	err := client.SetPassword(context.Background(), jwt.AccessToken, userID, "master", req.Password, false)
-	if err != nil {
-		panic(err.Error())
+		return "", err
 	}
 
-	return userID
-}
-
-func GetClients() {
-	jwt := LoginAdmin()
-	clients, err := client.GetClients(context.Background(), jwt.AccessToken, "master", gocloak.GetClientsParams{})
-	if err != nil {
-		panic(err.Error())
-	}
-	for _, client := range clients {
-		println(*client.Name, *client.ClientID, *client.ID)
-	}
-}
-
-func Auth(req md.RegisterRequest) string {
-	// jwt := LoginAdmin()
-	_, err := client.LoginClient(context.Background(), "profile-2", "gcVzad8Ua3qA8O2GqKRo3GpgsvGAf5gg", "master")
-	if err != nil {
-		panic(err.Error())
-	}
-	// client.GetClients()
-
-	if err != nil {
-		panic(err.Error())
-	}
-	userJWT, err := client.Login(context.Background(), "profile-2", "gcVzad8Ua3qA8O2GqKRo3GpgsvGAf5gg", "master", req.Username, req.Password)
-	if err != nil {
-		panic(err.Error())
-	}
-	println(
-		userJWT.AccessToken,
-		userJWT.ExpiresIn,
-		userJWT.RefreshToken,
-	)
-	return userJWT.AccessToken
-}
-
-func Decode(token string) {
-	println(token)
-	tk, _, err := client.DecodeAccessToken(context.Background(), token, "master")
-	if err != nil {
-		panic(err.Error())
-	}
-	println(tk.Valid)
-}
-
-func RoleCheck(req md.RegisterRequest) {
-	jwt := LoginAdmin()
-
-	clients, err := client.GetClients(context.Background(), jwt.AccessToken, "master", gocloak.GetClientsParams{
-		ClientID: gocloak.StringP("profile-2"),
-	})
-
-	if err != nil {
-		panic(err.Error())
-	}
-
-	role := gocloak.Role{
-		Name:       gocloak.StringP("profiler"),
-		ClientRole: gocloak.BoolP(true),
-	}
-
-	roleId, err := client.CreateClientRole(context.Background(), jwt.AccessToken, "master", *clients[0].ID, role)
-	if err != nil {
-		panic(err.Error())
-	}
-
-	println(clients[0].String())
-
-	rolemap := make(map[string][]string)
-	stringMap := make([]string, 1)
-	stringMap = append(stringMap, "user")
-
-	rolemap["admin123"] = stringMap
-
-	userId, err := client.CreateUser(context.Background(), jwt.AccessToken, "master", gocloak.User{
-		Username:    &req.Username,
-		ClientRoles: &rolemap,
-		Enabled:     gocloak.BoolP(true),
-	})
-
-	if err != nil {
-		println(err.Error())
-	}
-
-	client.SetPassword(context.Background(), jwt.AccessToken, userId, "master", req.Password, false)
-
-	if err != nil {
-		panic(err.Error())
-	}
-
-	println(roleId)
-
-	role2, err := client.GetClientRoleByID(context.Background(), jwt.AccessToken, "master", roleId)
-
-	if err != nil {
-		panic(err)
-	}
-
-	println(role2.String())
-
-	roleSlice := []gocloak.Role{*role2}
-	err = client.AddClientRolesToUser(context.Background(), jwt.AccessToken, "master", "profile-2", userId, roleSlice)
-
-	if err != nil {
-		panic(err)
-	}
-
-	// userActual, err := client.GetUserByID(context.Background(), jwt.AccessToken, "master", userId)
-
-	// if err != nil {
-	// 	println(err.Error())
-	// }
-}
-
-func GetUserByUsername(username string) string {
-	jwt := LoginAdmin()
-	result, err := client.GetUsers(
-		context.Background(),
-		jwt.AccessToken,
-		"master",
-		gocloak.GetUsersParams{
-			Username: &username,
-		},
-	)
-
-	if err != nil {
-		panic(err.Error())
-	}
-	clients, err := client.GetClients(context.Background(), jwt.AccessToken, "master", gocloak.GetClientsParams{ClientID: gocloak.StringP("profile-2")})
-
-	if err != nil {
-		panic(err.Error())
-	}
-	AddRole(*result[0].ID, *clients[0].ID)
-
-	return result[0].String()
-}
-
-func AddRole(userID string, clientId string) {
-	jwt := LoginAdmin()
-	role1, err := client.GetClientRole(
-		context.Background(),
-		jwt.AccessToken,
-		"master",
-		clientId,
-		"profiler",
-	)
-
-	if err != nil {
-		panic(err.Error())
-	}
-
-	err = client.AddClientRolesToUser(
-		context.Background(),
-		jwt.AccessToken,
-		"master",
-		clientId,
-		userID,
-		[]gocloak.Role{*role1},
-	)
-
-	if err != nil {
-		panic(err.Error())
-	}
+	client.SetPassword(ctx, jwt.AccessToken, userID, realm, password, false)
+	return userID, nil
 }
