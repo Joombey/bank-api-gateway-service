@@ -3,19 +3,16 @@ package models
 type RegisterRequest struct {
 	Username string `json:"username"`
 	Password string `json:"password"`
-	Jwt      Token  `json:"token"`
 }
 
 type DeleteUserRequest struct {
 	Username string `json:"username"`
 	Caller   string `json:"caller"`
-	Jwt      Token  `json:"token"`
 }
 
 type ValueResponse struct {
 	CardNumber int     `json:"card_number"`
 	Value      float32 `json:"value"`
-	Jwt        Token   `json:"token"`
 }
 
 type ProfileResponse struct {
@@ -26,10 +23,10 @@ type ProfileResponse struct {
 }
 
 type TransferDTO struct {
-	From  int     `json:"from"`
-	To    int     `json:"to"`
-	Value float32 `json:"value"`
-	Jwt   Token   `json:"token"`
+	Username string  `json:"username"`
+	From     int     `json:"from"`
+	To       int     `json:"to"`
+	Value    float32 `json:"value"`
 }
 
 type Token struct {
@@ -37,17 +34,10 @@ type Token struct {
 	RefreshToken string `json:"refresh_token"`
 }
 
-type TransferResponse struct {
-	NewValues []ValueResponse `json:"new_values"`
-	NewToken  Token           `json:"new_token"`
-	Error     string          `json:"error"`
-	ErrorCode int
-}
-
-type ReponseFrameWithError struct {
-	Body     any       `json:"body"`
-	NewToken Token     `json:"new_token"`
-	Err      ErrorBody `json:"err"`
+type BaseHTTPModel struct {
+	Body  any       `json:"body"`
+	Token Token     `json:"new_token"`
+	Err   ErrorBody `json:"err"`
 }
 
 type Profile struct {
@@ -59,4 +49,9 @@ type Profile struct {
 type ErrorBody struct {
 	Error     string `json:"error"`
 	ErrorCode int
+}
+
+type InsertRequest struct {
+	CardNumber int     `json:"card_number"`
+	Value      float32 `json:"value"`
 }

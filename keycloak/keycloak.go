@@ -5,19 +5,9 @@ import (
 	"errors"
 	"os"
 
-	cts "farukh.go/api-gateway/constants"
 	md "farukh.go/api-gateway/models"
 	gocloak "github.com/Nerzal/gocloak/v13"
 )
-
-var (
-	client     *gocloak.GoCloak
-	idOfClient string = os.Getenv("ID_OF_CLIENT")
-	secret     string = os.Getenv("SECRET")
-	baseRoles  map[string]gocloak.Role
-)
-
-const realm string = "master"
 
 func Init() {
 	client = gocloak.NewClient("http://localhost:8086")
@@ -92,7 +82,7 @@ func CheckToken(token md.Token) (newToken *md.Token, err error) {
 	spectResult, err := client.RetrospectToken(
 		context.Background(),
 		token.AccessToken,
-		cts.ClientID,
+		ClientID,
 		secret,
 		realm,
 	)
@@ -130,7 +120,7 @@ func RegisterUser(username, password, role string) (userID string, err error) {
 func LoginUser(username, password string) (md.Token, error) {
 	jwt, err := client.Login(
 		context.Background(),
-		cts.ClientID,
+		ClientID,
 		secret,
 		realm,
 		username,
@@ -141,14 +131,14 @@ func LoginUser(username, password string) (md.Token, error) {
 }
 
 func tryCreateFirstAdmin() {
-	_, err := RegisterUser("admin", "admin", cts.RoleAdmin)
+	_, err := RegisterUser("admin", "admin", RoleAdmin)
 	if err != nil {
 		panic(err)
 	}
 }
 
 func refreshToken(token md.Token) (*md.Token, error) {
-	jwt, err := client.RefreshToken(context.Background(), token.RefreshToken, cts.ClientID, secret, realm)
+	jwt, err := client.RefreshToken(context.Background(), token.RefreshToken, ClientID, secret, realm)
 	token = md.Token{AccessToken: jwt.AccessToken, RefreshToken: jwt.RefreshToken}
 	return &token, err
 }
@@ -183,9 +173,9 @@ func tryCreateClient() {
 		jwt.AccessToken,
 		realm,
 		gocloak.Client{
-			ClientID:     gocloak.StringP(cts.ClientID),
+			ClientID:     gocloak.StringP(ClientID),
 			Enabled:      gocloak.BoolP(true),
-			Name:         gocloak.StringP(cts.ClientID),
+			Name:         gocloak.StringP(ClientID),
 			PublicClient: gocloak.BoolP(true),
 		},
 	)
@@ -205,7 +195,7 @@ func tryCreateRoles() {
 	}
 
 	jwt := LoginAdmin()
-	for _, roleName := range cts.Roles {
+	for _, roleName := range Roles {
 		role := gocloak.Role{Name: &roleName, ClientRole: gocloak.BoolP(true)}
 		client.CreateClientRole(context.Background(), jwt.AccessToken, realm, idOfClient, role)
 	}
@@ -217,7 +207,7 @@ func setRoleForNewUser(userID, roleName, token string) (err error) {
 
 	foundRole, err := client.GetClientRole(context.Background(), token, realm, idOfClient, roleName)
 	if err == nil {
-		role = baseRoles[cts.RoleUser]
+		role = baseRoles[RoleUser]
 	} else {
 		role = *foundRole
 	}
@@ -246,3 +236,22 @@ func createUserWithPassword(username, password, token string) (userID string, er
 	client.SetPassword(ctx, jwt.AccessToken, userID, realm, password, false)
 	return userID, nil
 }
+
+
+const (
+	RoleCardOwner string = "card-owner"
+	RoleUser      string = "user"
+	RoleAdmin     string = "admin"
+	ClientID      string = "profile-app"
+)
+
+var Roles = []string{RoleAdmin, RoleUser, RoleAdmin}
+
+var (
+	client     *gocloak.GoCloak
+	idOfClient string = os.Getenv("ID_OF_CLIENT")
+	secret     string = os.Getenv("SECRET")
+	baseRoles  map[string]gocloak.Role
+)
+
+const realm string = "master"
