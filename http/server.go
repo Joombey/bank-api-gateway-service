@@ -11,7 +11,7 @@ import (
 
 func Init() {
 	router := gin.Default()
-	
+
 	router.GET("/credentials/:id", func(ctx *gin.Context) {
 		id, err := strconv.Atoi(ctx.Param("id"))
 		if err != nil {
@@ -41,10 +41,10 @@ func Init() {
 
 	router.POST("/auth", func(ctx *gin.Context) {
 		var request models.RegisterRequest
-		
+
 		ctx.BindJSON(&request)
 		token, err := handlers.Login(request.Username, request.Password)
-		
+
 		var status int
 		if err != nil {
 			status = http.StatusForbidden
@@ -63,7 +63,10 @@ func Init() {
 	})
 
 	router.GET("/create/:name", func(ctx *gin.Context) {
-		
+		username := ctx.Param("name")
+		response := handlers.CreateUser(username, "123")
+		ctx.IndentedJSON(response.Err.ErrorCode, response)
 	})
+	
 	router.Run()
 }

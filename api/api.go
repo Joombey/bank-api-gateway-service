@@ -14,12 +14,12 @@ import (
 var client = http.Client{Timeout: time.Duration(10) * time.Second}
 
 const (
-	baseUrl    = "http://profile-app:8080/"
+	baseUrl    = "http://0.0.0.0:8082/"
 	sendUrl    = baseUrl + "send"
 	createUrl  = baseUrl + "create"
 	profileUrl = baseUrl + "credentials"
 	blockUrl   = baseUrl + "block"
-	loadUrl   = "http://bank-app:8080/load-money"
+	loadUrl   = "http://0.0.0.0:8081/load-money"
 )
 
 func TransferRequest(from int, to int, value float32) ([]models.ValueResponse, models.ErrorBody) {
@@ -74,6 +74,7 @@ func makeBaseProfileGetRequest(url string) (*models.Profile, models.ErrorBody) {
 
 	responseModel := models.Profile{}
 	decodeJson(response.Body, &responseModel)
+	println(responseModel.CardNumber, responseModel.Name)
 	return &responseModel, models.ErrorBody{Error: response.Status, ErrorCode: response.StatusCode}
 }
 

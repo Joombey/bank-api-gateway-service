@@ -131,10 +131,7 @@ func LoginUser(username, password string) (md.Token, error) {
 }
 
 func tryCreateFirstAdmin() {
-	_, err := RegisterUser("admin", "admin", RoleAdmin)
-	if err != nil {
-		panic(err)
-	}
+	RegisterUser("admin", "admin", RoleAdmin)
 }
 
 func refreshToken(token md.Token) (*md.Token, error) {
@@ -156,8 +153,9 @@ func obtainRoles() {
 	if err != nil {
 		panic(err)
 	}
-
 	for _, v := range roles {
+		println(*v.Name)
+		println(*v.Name)
 		baseRoles[*v.Name] = *v
 	}
 }
@@ -168,7 +166,7 @@ func tryCreateClient() {
 	}
 
 	jwt := LoginAdmin()
-	idOfClient, _ = client.CreateClient(
+	id, err := client.CreateClient(
 		context.Background(),
 		jwt.AccessToken,
 		realm,
@@ -179,6 +177,11 @@ func tryCreateClient() {
 			PublicClient: gocloak.BoolP(true),
 		},
 	)
+	if err != nil {
+		idOfClient = getClient()
+	} else {
+		idOfClient = id
+	}
 
 	clientRepr, err := client.GetClientSecret(context.Background(), jwt.AccessToken, realm, idOfClient)
 	if err != nil {
@@ -186,7 +189,22 @@ func tryCreateClient() {
 	}
 
 	os.Setenv("ID_OF_CLIENT", idOfClient)
-	os.Setenv("SECRET", *clientRepr.ID)
+	os.Setenv("SECRET", gocloak.PString(clientRepr.SecretData))
+}
+
+func getClient() string{
+	token := LoginAdmin().AccessToken
+	clients, err := client.GetClients(
+		context.Background(),
+		token,
+		realm,
+		gocloak.GetClientsParams{ ClientID: gocloak.StringP(ClientID) },
+	)
+
+	if err != nil {
+		panic(err.Error())
+	}
+	return gocloak.PString(clients[0].ID)
 }
 
 func tryCreateRoles() {
@@ -206,7 +224,7 @@ func setRoleForNewUser(userID, roleName, token string) (err error) {
 	var role gocloak.Role
 
 	foundRole, err := client.GetClientRole(context.Background(), token, realm, idOfClient, roleName)
-	if err == nil {
+	if err != nil {
 		role = baseRoles[RoleUser]
 	} else {
 		role = *foundRole
@@ -251,7 +269,7 @@ var (
 	client     *gocloak.GoCloak
 	idOfClient string = os.Getenv("ID_OF_CLIENT")
 	secret     string = os.Getenv("SECRET")
-	baseRoles  map[string]gocloak.Role
+	baseRoles  map[string]gocloak.Role = make(map[string]gocloak.Role, 0)
 )
 
 const realm string = "master"
