@@ -37,7 +37,7 @@ type Token struct {
 type BaseHTTPModel struct {
 	Body  any       `json:"body,omitempty"`
 	Token Token     `json:"new_token,omitempty"`
-	Err   ErrorBody `json:"err",omitempty`
+	Err   ErrorBody `json:"err,omitempty"`
 }
 
 type Profile struct {
