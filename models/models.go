@@ -2,7 +2,7 @@ package models
 
 type RegisterRequest struct {
 	Username string `json:"username"`
-	Password string `json:"password"`
+	Password string `json:"password,omitempty"`
 }
 
 type DeleteUserRequest struct {
@@ -23,7 +23,7 @@ type ProfileResponse struct {
 }
 
 type TransferDTO struct {
-	Username string  `json:"username"`
+	Username string  `json:"username,omitempty"`
 	From     int     `json:"from"`
 	To       int     `json:"to"`
 	Value    float32 `json:"value"`
@@ -35,9 +35,9 @@ type Token struct {
 }
 
 type BaseHTTPModel struct {
-	Body  any       `json:"body"`
-	Token Token     `json:"new_token"`
-	Err   ErrorBody `json:"err"`
+	Body  any       `json:"body,omitempty"`
+	Token Token     `json:"new_token,omitempty"`
+	Err   ErrorBody `json:"err",omitempty`
 }
 
 type Profile struct {
@@ -48,7 +48,7 @@ type Profile struct {
 
 type ErrorBody struct {
 	Error     string `json:"error"`
-	ErrorCode int
+	ErrorCode int    `json:"-"`
 }
 
 type InsertRequest struct {

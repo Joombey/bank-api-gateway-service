@@ -10,23 +10,22 @@ import (
 )
 
 func Init() {
-	client = gocloak.NewClient("http://localhost:8086")
+	client = gocloak.NewClient("http://keycloak:8080")
 	tryCreateClient()
 	tryCreateRoles()
 	tryCreateFirstAdmin()
 	obtainRoles()
+	getClients()
 }
 
 func UpdateUser(target, role string) error {
 	token := LoginAdmin().AccessToken
-	
-	users, err := client.GetUsersByClientRoleName(
+
+	users, err := client.GetUsers(
 		context.Background(),
 		token,
 		realm,
-		idOfClient,
-		role,
-		gocloak.GetUsersByRoleParams{},
+		gocloak.GetUsersParams{ Username: gocloak.StringP(target) },
 	)
 	if err != nil {
 		return err
@@ -42,25 +41,34 @@ func UpdateUser(target, role string) error {
 	if userID == "" {
 		return errors.New("no such user")
 	}
-	
+
 	return setRoleForNewUser(userID, role, token)
-}	
+}
 
 func CheckRole(username, role string) (bool, error) {
 	token := LoginAdmin().AccessToken
-
-	users, err := client.GetUsers(
+	users, err := client.GetUsersByClientRoleName(
 		context.Background(),
-		token,
-		realm,
-		gocloak.GetUsersParams{Username: &username},
+			token,
+			realm,
+			idOfClient,
+			role,
+			gocloak.GetUsersByRoleParams{},
 	)
-
 	if err != nil {
 		return false, err
 	}
 
-	return len(users) != 0, nil
+	hasRole := false
+	println(len(users))
+	for _, v := range users {
+		println(*v.Username)
+		if *v.Username == username{
+			hasRole = true
+			break
+		}
+	}
+	return hasRole, nil
 }
 
 func DeleteUser(username string) error {
@@ -126,16 +134,21 @@ func LoginUser(username, password string) (md.Token, error) {
 		username,
 		password,
 	)
-
+	if err != nil {
+		panic(err.Error())
+	}
 	return md.Token{AccessToken: jwt.AccessToken, RefreshToken: jwt.RefreshToken}, err
 }
 
 func tryCreateFirstAdmin() {
-	RegisterUser("admin", "admin", RoleAdmin)
+	RegisterUser("manager", "manager", RoleAdmin)
 }
 
 func refreshToken(token md.Token) (*md.Token, error) {
 	jwt, err := client.RefreshToken(context.Background(), token.RefreshToken, ClientID, secret, realm)
+	if err != nil {
+		return nil, err
+	}
 	token = md.Token{AccessToken: jwt.AccessToken, RefreshToken: jwt.RefreshToken}
 	return &token, err
 }
@@ -154,8 +167,6 @@ func obtainRoles() {
 		panic(err)
 	}
 	for _, v := range roles {
-		println(*v.Name)
-		println(*v.Name)
 		baseRoles[*v.Name] = *v
 	}
 }
@@ -171,10 +182,12 @@ func tryCreateClient() {
 		jwt.AccessToken,
 		realm,
 		gocloak.Client{
-			ClientID:     gocloak.StringP(ClientID),
-			Enabled:      gocloak.BoolP(true),
-			Name:         gocloak.StringP(ClientID),
-			PublicClient: gocloak.BoolP(true),
+			ClientID:                     gocloak.StringP(ClientID),
+			Enabled:                      gocloak.BoolP(true),
+			Name:                         gocloak.StringP(ClientID),
+			PublicClient:                 gocloak.BoolP(false),
+			// AuthorizationServicesEnabled: gocloak.BoolP(true),
+			DirectAccessGrantsEnabled:    gocloak.BoolP(true),
 		},
 	)
 	if err != nil {
@@ -187,18 +200,18 @@ func tryCreateClient() {
 	if err != nil {
 		panic(err.Error())
 	}
-
+	secret = gocloak.PString(clientRepr.Value)
 	os.Setenv("ID_OF_CLIENT", idOfClient)
-	os.Setenv("SECRET", gocloak.PString(clientRepr.SecretData))
+	os.Setenv("SECRET", secret)
 }
 
-func getClient() string{
+func getClient() string {
 	token := LoginAdmin().AccessToken
 	clients, err := client.GetClients(
 		context.Background(),
 		token,
 		realm,
-		gocloak.GetClientsParams{ ClientID: gocloak.StringP(ClientID) },
+		gocloak.GetClientsParams{ClientID: gocloak.StringP(ClientID)},
 	)
 
 	if err != nil {
@@ -255,6 +268,16 @@ func createUserWithPassword(username, password, token string) (userID string, er
 	return userID, nil
 }
 
+func getClients() {
+	token := LoginAdmin().AccessToken
+	clients, _ := client.GetClients(context.Background(), token, realm, gocloak.GetClientsParams{ClientID: gocloak.StringP("profile-2")})
+	for _, v := range clients {
+		println(
+			gocloak.PString(v.ClientAuthenticatorType),
+			gocloak.PBool(v.AuthorizationServicesEnabled),
+		)
+	}
+}
 
 const (
 	RoleCardOwner string = "card-owner"
@@ -263,12 +286,12 @@ const (
 	ClientID      string = "profile-app"
 )
 
-var Roles = []string{RoleAdmin, RoleUser, RoleAdmin}
+var Roles = []string{RoleAdmin, RoleUser, RoleCardOwner}
 
 var (
 	client     *gocloak.GoCloak
-	idOfClient string = os.Getenv("ID_OF_CLIENT")
-	secret     string = os.Getenv("SECRET")
+	idOfClient string                  = os.Getenv("ID_OF_CLIENT")
+	secret     string                  = os.Getenv("SECRET")
 	baseRoles  map[string]gocloak.Role = make(map[string]gocloak.Role, 0)
 )
 

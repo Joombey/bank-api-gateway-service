@@ -7,6 +7,7 @@ import (
 	"farukh.go/api-gateway/handlers"
 	"farukh.go/api-gateway/models"
 	"github.com/gin-gonic/gin"
+	ms "github.com/mitchellh/mapstructure"
 )
 
 func Init() {
@@ -28,7 +29,12 @@ func Init() {
 			ctx.IndentedJSON(http.StatusBadRequest, "Invalid body json format")
 		}
 
-		transferRequest := data.Body.(models.TransferDTO)
+		var transferRequest models.TransferDTO
+		err = ms.Decode(data.Body, &transferRequest)
+		if err!= nil{
+			panic(err.Error())
+		}
+
 		response := handlers.Transfer(
 			transferRequest.Username,
 			data.Token,
@@ -62,11 +68,53 @@ func Init() {
 		ctx.IndentedJSON(response.Err.ErrorCode, response)
 	})
 
-	router.GET("/create/:name", func(ctx *gin.Context) {
-		username := ctx.Param("name")
-		response := handlers.CreateUser(username, "123")
+	router.POST("/create", func(ctx *gin.Context) {
+		var request models.RegisterRequest
+		ctx.BindJSON(&request)
+		
+		response := handlers.CreateUser(request.Username, request.Password)
 		ctx.IndentedJSON(response.Err.ErrorCode, response)
 	})
+
+	router.POST("/block/:id", func(ctx *gin.Context) {
+		id, err := strconv.Atoi(ctx.Param("id"))
+		if err != nil {
+			ctx.IndentedJSON(http.StatusBadRequest, "invalid id not a number")
+		}
+
+		data := models.BaseHTTPModel{}
+		err = ctx.BindJSON(&data)
+		if err != nil {
+			ctx.IndentedJSON(http.StatusBadRequest, "Invalid body json format")
+		}
+
+		var blockRequest models.DeleteUserRequest
+		err = ms.Decode(data.Body, &blockRequest)
+		if err!= nil{
+			panic(err.Error())
+		}
+		
+		println(data.Token.AccessToken)
+		response := handlers.BlockUser(id, blockRequest.Caller, blockRequest.Username, data.Token)
+		ctx.IndentedJSON(response.Err.ErrorCode, response)
+	})
+
+	router.POST("/update/:role", func(ctx *gin.Context) {
+		role := ctx.Param("role")
+		data := models.BaseHTTPModel{}
+		err := ctx.BindJSON(&data)
+		if err != nil {
+			ctx.IndentedJSON(http.StatusBadRequest, "Invalid body json format")
+		}
+
+		var blockRequest models.DeleteUserRequest
+		err = ms.Decode(data.Body, &blockRequest)
+		if err!= nil{
+			panic(err.Error())
+		}
+		
+		handlers.UpdateUser(blockRequest.Caller, blockRequest.Username, role, data.Token)
+	})
 	
-	router.Run()
+	router.Run("0.0.0.0:8080")
 }

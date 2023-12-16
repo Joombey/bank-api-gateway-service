@@ -14,25 +14,41 @@ func GetProfileHandler(id int) models.BaseHTTPModel {
 }
 
 func Transfer(username string, token models.Token, from int, to int, value float32) models.BaseHTTPModel {
-	Token, errBody := preprocessUser(username, kk.RoleCardOwner, token)
+	newToken, errBody := preprocessUser(username, kk.RoleCardOwner, token)
 	if errBody != nil {
-		return models.BaseHTTPModel{Token: *Token, Err: *errBody}
+		return models.BaseHTTPModel{Err: *errBody}
 	}
 
 	serviceResponse, errFromResponse := api.TransferRequest(from, to, value)
-	return models.BaseHTTPModel{Body: serviceResponse, Token: *Token, Err: errFromResponse}
+	return models.BaseHTTPModel{Body: serviceResponse, Token: *newToken, Err: errFromResponse}
 }
 
 func CreateUser(username, password string) models.BaseHTTPModel {
-	kk.RegisterUser(username, password, kk.RoleCardOwner)
-	response, err := api.CreateProfile(username)
-	return models.BaseHTTPModel{Body: response, Err: err}
+	kk.RegisterUser(username, password, kk.RoleUser)
+	response, errBody := api.CreateProfile(username)
+	
+	token, err := kk.LoginUser(username, password)
+	if err != nil {
+		panic(err)
+	}
+	
+	kk.UpdateUser(username, kk.RoleCardOwner)
+	return models.BaseHTTPModel{Body: response, Err: errBody, Token: token}
 }
 
 func BlockUser(id int, username, target string, token models.Token) models.BaseHTTPModel {
 	Token, errBody := preprocessUser(username, kk.RoleAdmin, token)
 	if errBody != nil {
-		return models.BaseHTTPModel{Token: *Token, Err: *errBody}
+		if Token == nil {
+			return models.BaseHTTPModel{Err: *errBody}
+		} else {
+			return models.BaseHTTPModel{Token: *Token, Err: *errBody}
+		}
+	}
+
+	deleteErr := kk.DeleteUser(target)
+	if deleteErr != nil {
+		panic(deleteErr.Error())
 	}
 
 	responseModel, err := api.BlockUser(id)
@@ -65,17 +81,23 @@ func UpdateUser(username, target, role string, token models.Token) models.BaseHT
 }
 
 func preprocessUser(username, requiredRole string, token models.Token) (*models.Token, *models.ErrorBody) {
-	Token, err := kk.CheckToken(token)
+	if username == "" {
+		return nil, &models.ErrorBody{ Error: "username must not be empty", ErrorCode: http.StatusBadRequest}
+	}
+	
+	newToken, err := kk.CheckToken(token)
 	if err != nil {
-		return Token, &models.ErrorBody{Error: err.Error(), ErrorCode: http.StatusBadRequest}
+		return newToken, &models.ErrorBody{Error: err.Error(), ErrorCode: http.StatusBadRequest}
 	}
 
 	hasRole, err := kk.CheckRole(username, requiredRole)
 	if err != nil {
-		return Token, &models.ErrorBody{Error: err.Error(), ErrorCode: http.StatusBadRequest}
+		return nil, &models.ErrorBody{Error: err.Error(), ErrorCode: http.StatusBadRequest}
 	} else if !hasRole {
-		return Token, &models.ErrorBody{Error: err.Error(), ErrorCode: http.StatusForbidden}
+		return nil, &models.ErrorBody{Error: "User has not acces for that type of action", ErrorCode: http.StatusForbidden}
 	}
 
-	return Token, nil
+	println(hasRole)
+
+	return newToken, nil
 }

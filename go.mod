@@ -5,6 +5,7 @@ go 1.20
 require (
 	github.com/Nerzal/gocloak/v13 v13.8.0
 	github.com/gin-gonic/gin v1.9.1
+	github.com/mitchellh/mapstructure v1.5.0
 )
 
 require (

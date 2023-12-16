@@ -14,19 +14,19 @@ import (
 var client = http.Client{Timeout: time.Duration(10) * time.Second}
 
 const (
-	baseUrl    = "http://0.0.0.0:8082/"
+	baseUrl    = "http://profile:8080/"
 	sendUrl    = baseUrl + "send"
 	createUrl  = baseUrl + "create"
 	profileUrl = baseUrl + "credentials"
 	blockUrl   = baseUrl + "block"
-	loadUrl   = "http://0.0.0.0:8081/load-money"
+	loadUrl    = "http://bank:8080/load-money"
 )
 
 func TransferRequest(from int, to int, value float32) ([]models.ValueResponse, models.ErrorBody) {
 	requestBody := models.TransferDTO{From: from, To: to, Value: value}
 	modelResponseModel := make([]models.ValueResponse, 2)
 	err := makeBasePostRequest(sendUrl, requestBody, &modelResponseModel)
-
+	println(err.Error)
 	return modelResponseModel, err
 }
 
@@ -42,12 +42,13 @@ func CreateProfile(username string) (*models.Profile, models.ErrorBody) {
 }
 
 func GetProfile(id int) (*models.Profile, models.ErrorBody) {
-	finalUrl := fmt.Sprintf("%s/%d", createUrl, id)
+	finalUrl := fmt.Sprintf("%s/%d", profileUrl, id)
 	return makeBaseProfileGetRequest(finalUrl)
 }
 
 func BlockUser(userID int) (*models.Profile, models.ErrorBody) {
-	finalUrl := fmt.Sprintf("%s/%d", createUrl, userID)
+	finalUrl := fmt.Sprintf("%s/%d", blockUrl, userID)
+	println(finalUrl)
 	return makeBaseProfileGetRequest(finalUrl)
 }
 
@@ -55,16 +56,16 @@ func UploadMoney(cardNumber int, value float32) {
 
 }
 
-func makeBasePostRequest(url string, model any, responseModel any) (models.ErrorBody) {
+func makeBasePostRequest(url string, model any, responseModel any) models.ErrorBody {
 	response, err := client.Post(url, "application/json", prepareJson(model))
 	if err != nil {
+		println(err.Error())
 		return models.ErrorBody{Error: err.Error(), ErrorCode: 500}
 	}
-	
+
 	decodeJson(response.Body, responseModel)
 	return models.ErrorBody{Error: response.Status, ErrorCode: response.StatusCode}
 }
-
 
 func makeBaseProfileGetRequest(url string) (*models.Profile, models.ErrorBody) {
 	response, err := client.Get(url)
@@ -74,7 +75,6 @@ func makeBaseProfileGetRequest(url string) (*models.Profile, models.ErrorBody) {
 
 	responseModel := models.Profile{}
 	decodeJson(response.Body, &responseModel)
-	println(responseModel.CardNumber, responseModel.Name)
 	return &responseModel, models.ErrorBody{Error: response.Status, ErrorCode: response.StatusCode}
 }
 
