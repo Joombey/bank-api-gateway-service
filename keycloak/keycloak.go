@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"os"
-
 	md "farukh.go/api-gateway/models"
 	gocloak "github.com/Nerzal/gocloak/v13"
 )
